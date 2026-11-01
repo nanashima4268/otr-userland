@@ -121,9 +121,14 @@ target_link_libraries(otr_libusb PUBLIC otr_backend PkgConfig::LIBUSB)
 otr_warnings(otr_libusb)
 
 # otrd (POSIX for now; Windows after the board runs, D-10).
-add_executable(otrd tools/otrd.cpp)
-target_link_libraries(otrd PRIVATE otr_runtime otr_libusb dtv::host_listener_context
+add_library(otrd_service STATIC src/otrd_service.cpp)
+target_link_libraries(otrd_service PUBLIC otr_runtime dtv::host_listener_context
     dtv::host_runtime)
+target_compile_definitions(otrd_service PRIVATE DTV_USERLAND_CORE_VERSION="${OTR_DTV_CORE_VERSION}")
+otr_warnings(otrd_service)
+
+add_executable(otrd tools/otrd.cpp)
+target_link_libraries(otrd PRIVATE otrd_service otr_libusb)
 target_compile_definitions(otrd PRIVATE DTV_USERLAND_CORE_VERSION="${OTR_DTV_CORE_VERSION}")
 otr_warnings(otrd)
 
@@ -162,6 +167,14 @@ if(BUILD_TESTING)
     target_link_libraries(maintenance_tests PRIVATE otr_runtime)
     otr_warnings(maintenance_tests)
     add_test(NAME maintenance_tests COMMAND maintenance_tests)
+
+    if(UNIX)
+        add_executable(e2e_tests tests/e2e_tests.cpp)
+        target_link_libraries(e2e_tests PRIVATE otrd_service)
+        otr_warnings(e2e_tests)
+        add_test(NAME e2e_tests COMMAND e2e_tests $<TARGET_FILE:otr-ts> $<TARGET_FILE:otrctl>)
+        set_tests_properties(e2e_tests PROPERTIES TIMEOUT 120)
+    endif()
 
     set_tests_properties(otr_backend_tests otr_device_tests otr_ts_path_tests otrd_tests
         maintenance_tests

@@ -6,7 +6,7 @@ The software is user-space only (libusb). A daemon (`otrd`) owns the device, and
 
 This is an independent project. It is not affiliated with or endorsed by the px4-userland author.
 
-Status: `otrd` builds and passes its offline tests (Linux/macOS). There is no hardware yet, so nothing has run against a real board. See [docs/design.md](docs/design.md).
+Status: `otrd`, `otr-ts` and `otrctl` build and pass their offline tests, including an end-to-end run against a fake board (Linux/macOS). There is no hardware yet, so nothing has run against a real board. See [docs/design.md](docs/design.md).
 
 It does not and will not implement B-CAS/ACAS decryption.
 
@@ -48,3 +48,10 @@ Current contents:
   - The flash writer, tested against a W25Q32JV model, including detection of a stuck bit.
 - `otrd` logs the FPGA drop counters every 10 s when they change.
 - `--device` is not supported by `otr-ts` or `otrctl`, because dtv-userland-core's identity products do not include `otr-userland`. BonDriver_Userland and mirakc select tuners by `--instance`. The help text of the shared CLI still lists `--device`.
+- `src/otrd_service.*`: the otrd composition, running on any FX3 `UsbBackend`. `tools/otrd.cpp` only parses arguments, opens libusb, and handles signals.
+- `tests/fake_board.h`: a fake board behind the `UsbBackend` seam. It models the FX3 requests, the FPGA registers (path reset, CH_ENABLE), and I2C with CXD2856ER/CXD2858ER register models (banked SLVT/SLVX, the tuner at 0x60, and preset lock bits). It sends a tagged TS stream at about 16 MB/s that carries only the enabled channels.
+- `tests/e2e_tests.cpp`: the otrd service on the fake board, with the real `otr-ts` and `otrctl` executables run as separate processes over the dtv-userland-core endpoints.
+  - `otrctl list` shows the board.
+  - `otr-ts` tunes receiver 2 to ISDB-T (473.142857 MHz) and receiver 0 to ISDB-S (BS1 IF, TSID 0x4010). In each case it writes 2 s of TS that is exactly that channel's packets, in order: 61,875 packets with 0 sync, continuity, or queue errors.
+  - When the service stops, every channel is disabled and the stream is stopped.
+  - 5 repeated runs of the whole suite passed.
