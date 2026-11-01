@@ -11,3 +11,19 @@ Status: design stage (see [docs/design.md](docs/design.md)). There is no hardwar
 It does not and will not implement B-CAS/ACAS decryption.
 
 License: GPL-2.0-only (see COPYING), matching the reused px4-userland code.
+
+## Build
+
+```sh
+cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+The pinned dependencies are fetched automatically. To use local trees instead, pass `-DOTR_DTV_CORE_SOURCE_DIR=...` and `-DOTR_PX4_USERLAND_SOURCE_DIR=...`.
+
+Current contents:
+- `src/fx3_protocol.h`: the FX3 vendor-request protocol v1.
+- `src/fx3_control.h`: the control-transfer seam.
+- `src/fx3_i2c.*`: a px4-userland `BridgeI2cMaster` built on I2C_RUN/I2C_RESULT.
+- `tests/fx3_i2c_tests.cpp`: offline tests against a fake FX3. They cover the program encoding, the reused CXD2856ER driver reading and writing through the bridge, channel isolation, NAK handling, and the size limits.
