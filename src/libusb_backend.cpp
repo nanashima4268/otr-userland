@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include "libusb_backend.h"
 
+#include <cctype>
+
 #include <libusb.h>
 
 #include <climits>
@@ -61,9 +63,47 @@ Result<std::unique_ptr<LibusbBackend>> LibusbBackend::open(UsbIds ids) noexcept
     int rc = libusb_init(&self->ctx_);
     if (rc != 0)
         return Result<std::unique_ptr<LibusbBackend>>::failure(map_error(rc));
-    self->handle_ = libusb_open_device_with_vid_pid(self->ctx_, ids.vid, ids.pid);
+    libusb_device** list = nullptr;
+    const ssize_t count = libusb_get_device_list(self->ctx_, &list);
+    if (count < 0)
+        return Result<std::unique_ptr<LibusbBackend>>::failure(map_error(static_cast<int>(count)));
+    std::size_t matches = 0U;
+    for (ssize_t i = 0; i < count; ++i) {
+        libusb_device_descriptor desc{};
+        if (libusb_get_device_descriptor(list[i], &desc) != 0 || desc.idVendor != ids.vid ||
+            desc.idProduct != ids.pid)
+            continue;
+        libusb_device_handle* h = nullptr;
+        if (libusb_open(list[i], &h) != 0)
+            continue;
+        unsigned char text[64] = {};
+        std::string serial;
+        if (desc.iSerialNumber != 0U) {
+            const int n = libusb_get_string_descriptor_ascii(h, desc.iSerialNumber, text,
+                                                             sizeof(text));
+            if (n > 0) serial.assign(reinterpret_cast<const char*>(text), static_cast<std::size_t>(n));
+        }
+        bool wanted = ids.serial.empty() || serial.size() == ids.serial.size();
+        for (std::size_t k = 0U; wanted && !ids.serial.empty() && k < serial.size(); ++k)
+            wanted = std::tolower(static_cast<unsigned char>(serial[k])) ==
+                     std::tolower(static_cast<unsigned char>(ids.serial[k]));
+        if (!wanted) {
+            libusb_close(h);
+            continue;
+        }
+        ++matches;
+        if (self->handle_ == nullptr) {
+            self->handle_ = h;
+            self->serial_ = serial;
+        } else {
+            libusb_close(h);
+        }
+    }
+    libusb_free_device_list(list, 1);
     if (self->handle_ == nullptr)
         return Result<std::unique_ptr<LibusbBackend>>::failure(Error::NOT_FOUND);
+    if (matches > 1U)
+        return Result<std::unique_ptr<LibusbBackend>>::failure(Error::BUSY);
     rc = libusb_claim_interface(self->handle_, 0);
     if (rc != 0)
         return Result<std::unique_ptr<LibusbBackend>>::failure(map_error(rc));

@@ -11,6 +11,7 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <thread>
 
 struct libusb_context;
@@ -22,6 +23,9 @@ namespace otr::fx3 {
 struct UsbIds final {
     std::uint16_t vid = 0x1209U;   // pid.codes test VID/PID during development (D-31)
     std::uint16_t pid = 0x0001U;
+    // Empty: the first matching board. Otherwise the USB serial string, the
+    // 16 hex digits of the boot flash unique ID (D-49), compared ignoring case.
+    std::string serial;
 };
 
 inline constexpr std::uint8_t kTsEndpoint = 0x81U;   // EP1 IN, bulk
@@ -29,11 +33,14 @@ inline constexpr std::uint32_t kControlTimeoutMs = 1000U;
 
 class LibusbBackend final : public UsbBackend {
 public:
-    // Opens the first matching device and claims interface 0.
+    // Opens the matching device and claims interface 0. More than one match
+    // without a serial is BUSY (ambiguous).
     static Result<std::unique_ptr<LibusbBackend>> open(UsbIds ids) noexcept;
     ~LibusbBackend() noexcept override;
     LibusbBackend(const LibusbBackend&) = delete;
     LibusbBackend& operator=(const LibusbBackend&) = delete;
+
+    const std::string& serial() const noexcept { return serial_; }
 
     Result<void> control_out(std::uint8_t request, std::uint16_t value, std::uint16_t index,
                              ByteView data) noexcept override;
@@ -55,6 +62,7 @@ private:
 
     libusb_context* ctx_ = nullptr;
     libusb_device_handle* handle_ = nullptr;
+    std::string serial_;
     bool claimed_ = false;
     std::atomic<bool> running_{false};
     std::thread events_;

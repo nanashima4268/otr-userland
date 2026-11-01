@@ -51,6 +51,25 @@ else()
     set(OTR_PX4_SOURCE "${px4_userland_SOURCE_DIR}")
 endif()
 
+# Core engines and the GPL host adapters, configured like siano-userland.
+file(STRINGS "${OTR_DTV_CORE_SOURCE}/CMakeLists.txt" _otr_core_project
+    REGEX "^project\\(dtv_userland_core VERSION ")
+string(REGEX MATCH "[0-9]+\\.[0-9]+\\.[0-9]+" OTR_DTV_CORE_VERSION "${_otr_core_project}")
+set(OTR_PX4_ROOT "${OTR_PX4_SOURCE}/userland")
+foreach(_opt CAPTURE RECEIVER CARD STATUS_PROJECTION AUTHORITY CONTROL HOST_CTL HOST_RUNTIME
+        HOST_TUNER HOST_WORKERS HOST_AUTHORITY_OWNER HOST_AUTHORITY_BRIDGE
+        HOST_LISTENER_CONTEXT HOST_TS HOST_FACADE HOST_DAEMON)
+    set(DTV_USERLAND_BUILD_${_opt} ON CACHE BOOL "" FORCE)
+endforeach()
+set(DTV_USERLAND_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(DTV_USERLAND_HOST_RUNTIME_PRODUCT "otr-userland" CACHE STRING "" FORCE)
+set(DTV_USERLAND_HOST_RUNTIME_INSTANCE_POLICY "lowercase" CACHE STRING "" FORCE)
+set(_otr_facade_dirs
+    "${OTR_DTV_CORE_SOURCE}/adapters/host_daemon/include;${OTR_DTV_CORE_SOURCE}/adapters/host_facade/include;${OTR_DTV_CORE_SOURCE}/adapters/host_runtime/include;${OTR_DTV_CORE_SOURCE}/adapters/host_listener_context/include;${OTR_DTV_CORE_SOURCE}/adapters/host_ts/include;${OTR_PX4_ROOT}/include")
+set(DTV_USERLAND_HOST_RUNTIME_FACADE_INCLUDE_DIRS "${_otr_facade_dirs}" CACHE STRING "" FORCE)
+set(DTV_USERLAND_HOST_TS_FACADE_INCLUDE_DIRS "${_otr_facade_dirs};${OTR_PX4_ROOT}/tools"
+    CACHE STRING "" FORCE)
+set(DTV_USERLAND_HOST_CTL_FACADE_INCLUDE_DIRS "${OTR_PX4_ROOT}/include" CACHE STRING "" FORCE)
 add_subdirectory(${OTR_DTV_CORE_SOURCE} dtv_core EXCLUDE_FROM_ALL)
 
 function(otr_warnings target)
@@ -72,6 +91,15 @@ target_include_directories(otr_px4_chips PUBLIC
 target_link_libraries(otr_px4_chips PUBLIC dtv::core)
 target_compile_options(otr_px4_chips PRIVATE -fno-exceptions -fno-rtti)
 
+# px4-userland's tagged-TS data plane (Q3U4StreamDataPlane), reused for the
+# FX3 stream through OtrStreamTransport.
+add_library(otr_px4_stream STATIC
+    ${OTR_PX4_ROOT}/src/q3u4_stream.cpp
+    ${OTR_PX4_ROOT}/src/identity.cpp
+    ${OTR_PX4_ROOT}/src/posix_tuner_nonce.cpp)
+target_link_libraries(otr_px4_stream PUBLIC otr_px4_chips dtv::host_tuner)
+target_compile_options(otr_px4_stream PRIVATE -fno-exceptions -fno-rtti)
+
 # OTR-4TS3-U1 backend: FX3 vendor-request protocol (docs/design.md section 4).
 find_package(Threads REQUIRED)
 add_library(otr_backend STATIC src/fx3_i2c.cpp src/fx3_device.cpp)
@@ -79,12 +107,24 @@ target_include_directories(otr_backend PUBLIC src)
 target_link_libraries(otr_backend PUBLIC otr_px4_chips Threads::Threads)
 otr_warnings(otr_backend)
 
+# Board, stream transport, and receivers (otrd composition).
+add_library(otr_runtime STATIC src/otr_board.cpp src/otr_transport.cpp src/otr_frontend.cpp)
+target_link_libraries(otr_runtime PUBLIC otr_backend otr_px4_stream dtv::host_tuner)
+otr_warnings(otr_runtime)
+
 # libusb transport (the only part that needs libusb).
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBUSB REQUIRED IMPORTED_TARGET libusb-1.0>=1.0.23)
 add_library(otr_libusb STATIC src/libusb_backend.cpp)
 target_link_libraries(otr_libusb PUBLIC otr_backend PkgConfig::LIBUSB)
 otr_warnings(otr_libusb)
+
+# otrd (POSIX for now; Windows after the board runs, D-10).
+add_executable(otrd tools/otrd.cpp)
+target_link_libraries(otrd PRIVATE otr_runtime otr_libusb dtv::host_listener_context
+    dtv::host_runtime)
+target_compile_definitions(otrd PRIVATE DTV_USERLAND_CORE_VERSION="${OTR_DTV_CORE_VERSION}")
+otr_warnings(otrd)
 
 include(CTest)
 if(BUILD_TESTING)
@@ -103,6 +143,11 @@ if(BUILD_TESTING)
     otr_warnings(otr_ts_path_tests)
     add_test(NAME otr_ts_path_tests COMMAND otr_ts_path_tests)
 
-    set_tests_properties(otr_backend_tests otr_device_tests otr_ts_path_tests
+    add_executable(otrd_tests tests/otrd_tests.cpp)
+    target_link_libraries(otrd_tests PRIVATE otr_runtime)
+    otr_warnings(otrd_tests)
+    add_test(NAME otrd_tests COMMAND otrd_tests)
+
+    set_tests_properties(otr_backend_tests otr_device_tests otr_ts_path_tests otrd_tests
         PROPERTIES TIMEOUT 60)
 endif()
