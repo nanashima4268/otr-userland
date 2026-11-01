@@ -99,16 +99,19 @@ FX3 の FPGA_REG（0xB5）経由で読み書きする。FPGA 側の実装は otr
 | 0x00 | ID | R | `0x4F545231`（"OTR1"） |
 | 0x01 | VERSION | R | 上位 16 ビットが major、下位 16 ビットが minor（現在 1.0） |
 | 0x02 | CH_ENABLE | R/W | 系統ごとの TS 受信の有効化（bit0〜3）。リセット後は 0 |
-| 0x03 | STATUS | R | bit0：FX3 の FLAGA |
+| 0x03 | STATUS | R | bit0：FX3 の FLAGA。bit1：経路リセットの処理中 |
 | 0x04〜0x07 | DROP_CNT[0..3] | R | FIFO があふれて捨てたパケット数（16 ビット、一周する） |
 | 0x08 | GPIO_OUT | R/W | 予備の出力 8 本（FX3 の GPIO が足りない場合に使う） |
 | 0x09 | SCRATCH | R/W | 通信の確認用 |
+| 0x0A | CTRL | W | bit0：経路リセット（D-50）。読むと 0 |
 | 0x0C〜0x0F | PKT_CNT[0..3] | R | FX3 へ送ったパケット数（32 ビット、一周する） |
 
 **otrd の手順**
 
-1. 起動時：ID と VERSION を照合し、CH_ENABLE で使う系統を有効にしてから、STREAM を開始する。
-2. 停止時：先に CH_ENABLE=0 にしてから、STREAM を停止する。
+1. 起動時：ID と VERSION を照合する。
+2. ストリームの開始時：経路リセット（CTRL bit0）を書き、STATUS bit1 が 0 になるのを待つ。そのあと STREAM を開始し、受信する系統の CH_ENABLE を立てる（D-50）。
+3. 受信機ごとの開始と停止：CH_ENABLE の該当ビットを立てる・下ろす。
+4. ストリームの停止時：CH_ENABLE=0 にしてから、STREAM を停止する。
 
 系統を途中で切り替えても、壊れたパケットは出ない。
 
@@ -124,5 +127,5 @@ FX3 の FPGA_REG（0xB5）経由で読み書きする。FPGA 側の実装は otr
 
 - **dtv-userland-core の host 系 API が固まっていない**：README に stable Core API ではないと書かれている。版を固定して追従する。実機が動いたら、上流の作者に相談する。
 - **Transport の形（otrd で行う）**：px4-userland のデータプレーン（`Q3U4StreamDataPlane`）は、IT930x 向けの値（エンドポイント 0x84、転送 188×816 バイト）で `start_stream` を呼ぶ。FX3 は 16KiB 単位でしか送らないので、otrd の受け口で、エンドポイントを 0x81 にし、転送の大きさを 16KiB の倍数に揃える。
-- **受信停止時の残りの扱い**：FX3 は 16KiB のバッファが満杯になるまで送らないので、受信を止めたときに最後の半端なバッファが届かない。FPGA が止める前にヌルパケットを詰めて満杯にするか、PKTEND を使うかを決める。
+- **受信停止時の残りの扱い**：決定済み（D-50）。最後の受信機が止まるときの末尾（16KiB 未満）は届かない。再開時は経路リセットで FPGA と FX3 のバッファの区切りを揃える。
 - **LNB 給電の安全**：px4-userland と同じく、`--allow-lnb-power` を付けたときだけ有効にする。加えて、ファームが DC 入力を検出できないときは拒否する（D-30）。

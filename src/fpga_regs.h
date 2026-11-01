@@ -15,12 +15,17 @@ enum class Reg : std::uint8_t {
     id = 0x00U,
     version = 0x01U,      // [31:16] major, [15:0] minor
     ch_enable = 0x02U,    // bits 0-3, all 0 after reset
-    status = 0x03U,       // bit 0: FX3 FLAGA
+    status = 0x03U,       // bit 0: FX3 FLAGA, bit 1: path reset pending
     drop_cnt0 = 0x04U,    // 0x04-0x07, 16 bits, wraps
     gpio_out = 0x08U,
     scratch = 0x09U,
+    ctrl = 0x0AU,         // bit 0: path reset (D-50), write-only
     pkt_cnt0 = 0x0CU,     // 0x0C-0x0F, 32 bits, wraps
 };
+
+inline constexpr std::uint32_t kStatusFlagA = 1U << 0;
+inline constexpr std::uint32_t kStatusPathResetPending = 1U << 1;
+inline constexpr std::uint32_t kCtrlPathReset = 1U << 0;
 
 inline constexpr std::uint8_t drop_cnt(unsigned ch) noexcept
 {
