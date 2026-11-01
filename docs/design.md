@@ -53,7 +53,10 @@ Khronos31 の `*-userland` 製品群（siano-userland などの兄弟製品）�
 ## 4. USB プロトコル（v1）
 
 - VID:PID は、開発中は `1209:0001`（pid.codes のテスト用、D-31）。
-- 起動方法（D-46）：ふだんは基板上の I²C EEPROM から起動する。開発中や最初の書き込みでは USB からの起動も使う。USB 起動のときは、ブートローダーが Cypress の既定 ID `04b4:00f3` で現れる。`otrctl` に、ファームを RAM に送る機能（ベンダーリクエスト 0xA0）と、EEPROM に書き込む機能を持たせる。
+- 起動方法（D-49。D-46 を改訂）：ふだんは基板上の SPI フラッシュ（W25Q32JV）から起動する。フラッシュに有効なイメージがないときは USB 起動に切り替わり、ブートローダーが Cypress の既定 ID `04b4:00f3` で現れる。
+  - **FPGA の起動**：FX3 は起動時に、フラッシュの FPGA 領域にあるビットストリームを RAM に読み、FPGA に書き込む。そのため、`otrd` がビットストリームを送るのは、開発中に差し替えるときだけになる（`--fpga PATH`）。
+  - **シリアル番号**：フラッシュの 64 ビット固有 ID を 16 桁の 16 進数にし、USB のシリアル文字列にする。otrd のインスタンス名にも使う。
+  - **otrctl の機能**：ファームを RAM に送る機能（ベンダーリクエスト 0xA0）と、フラッシュに書き込む機能（FX3 イメージと FPGA 領域）を持たせる。
 - 実装：FX3 ファームは otr-4ts3-u1 の `fx3/fw`（MIT）にある。
 - インターフェースは 1 つ。EP0（制御）と EP1 IN（バルク、TS）を使う。
 - Windows でドライバの手動導入をなくすため、FX3 ファームに MS OS 2.0 ディスクリプタを入れ、WinUSB に自動で結びつける（px4-userland と同じく INF を使わない）。
@@ -62,15 +65,17 @@ Khronos31 の `*-userland` 製品群（siano-userland などの兄弟製品）�
 
 | bRequest | 方向 | wValue / wIndex | データ | 内容 |
 |---|---|---|---|---|
-| 0xB0 GET_INFO | IN | – | 32 バイト | プロトコル版、ファーム版、FPGA の状態（設定済みか、ビットストリームの ID）、DMA バッファの大きさ |
+| 0xB0 GET_INFO | IN | – | 32 バイト | プロトコル版、ファーム版、FPGA の状態（設定済みか、設定の出どころ：フラッシュかホストか）、DMA バッファの大きさ、フラッシュの固有 ID（配置は `src/fx3_protocol.h`） |
 | 0xB1 I2C_RUN | OUT | wIndex = I²C チャンネル（0〜3） | I2C プログラム（下記） | 書き込みと読み出しの並びを 1 回のトランザクションで実行する（途中は repeated start） |
 | 0xB2 I2C_RESULT | IN | – | 状態＋読み出したバイト | 直前の I2C_RUN の結果（どの段で NAK になったか）と、読み出したデータ |
 | 0xB3 GPIO | OUT/IN | wValue = 値、wIndex = マスク | – / 4 バイト | 系統ごとの電源とリセット、LNA のバイパス、LNB の有効化、LED。IN で現在値を読む |
 | 0xB4 FPGA_LOAD | OUT | wValue = 段階（0 = 開始、1 = データ、2 = 終了） | 最大 4096 バイト | ビットストリームを分割して送る |
 | 0xB5 FPGA_REG | OUT/IN | wValue = アドレス | 4 バイト | FPGA の制御レジスタ（系統の有効化、取りこぼしカウンタ、版）。設定後の SPI をレジスタアクセスに使う |
 | 0xB6 STREAM | OUT | wValue = 1（開始）／0（停止） | – | GPIF と DMA を開始・停止する。停止時は FIFO を空にする |
-| 0xB7 EEPROM_WRITE | OUT | wValue = アドレス | 64 バイト以下（1 ページ以内） | 起動用 EEPROM（24LC256）に書き込む（D-46） |
-| 0xB8 EEPROM_READ | IN | wValue = アドレス | 512 バイト以下 | 起動用 EEPROM から読み出す |
+| 0xB7 FLASH_WRITE | OUT | wIndex:wValue = アドレス（24 ビット） | 256 バイト以下（1 ページ以内） | 起動用フラッシュに書き込む（D-49）。データ段のあとは失敗を返せないので、ホストは読み戻して確かめる |
+| 0xB8 FLASH_READ | IN | wIndex:wValue = アドレス | 4096 バイト以下 | 起動用フラッシュから読み出す |
+| 0xB9 FLASH_ERASE | OUT | wIndex:wValue = 4KiB セクタの先頭 | – | セクタ消去を始める（最大 400ms）。終わるまで FLASH_STATUS で待つ |
+| 0xBA FLASH_STATUS | IN | – | 1 バイト | ステータスレジスタ 1（bit0 = 処理中） |
 | 0xBF MS OS 2.0 | IN | wIndex = 7 | 162 バイト | Windows が WinUSB を結びつけるための記述子セット（BOS の platform capability で指定） |
 
 I2C プログラムの形式は `{op, addr, len, data...}` の並びとし、合計 512 バイト以下にする。
@@ -118,5 +123,6 @@ FX3 の FPGA_REG（0xB5）経由で読み書きする。FPGA 側の実装は otr
 ## 7. 未決事項
 
 - **dtv-userland-core の host 系 API が固まっていない**：README に stable Core API ではないと書かれている。版を固定して追従する。実機が動いたら、上流の作者に相談する。
+- **Transport の形（otrd で行う）**：px4-userland のデータプレーン（`Q3U4StreamDataPlane`）は、IT930x 向けの値（エンドポイント 0x84、転送 188×816 バイト）で `start_stream` を呼ぶ。FX3 は 16KiB 単位でしか送らないので、otrd の受け口で、エンドポイントを 0x81 にし、転送の大きさを 16KiB の倍数に揃える。
 - **受信停止時の残りの扱い**：FX3 は 16KiB のバッファが満杯になるまで送らないので、受信を止めたときに最後の半端なバッファが届かない。FPGA が止める前にヌルパケットを詰めて満杯にするか、PKTEND を使うかを決める。
 - **LNB 給電の安全**：px4-userland と同じく、`--allow-lnb-power` を付けたときだけ有効にする。加えて、ファームが DC 入力を検出できないときは拒否する（D-30）。
