@@ -73,10 +73,18 @@ target_link_libraries(otr_px4_chips PUBLIC dtv::core)
 target_compile_options(otr_px4_chips PRIVATE -fno-exceptions -fno-rtti)
 
 # OTR-4TS3-U1 backend: FX3 vendor-request protocol (docs/design.md section 4).
-add_library(otr_backend STATIC src/fx3_i2c.cpp)
+find_package(Threads REQUIRED)
+add_library(otr_backend STATIC src/fx3_i2c.cpp src/fx3_device.cpp)
 target_include_directories(otr_backend PUBLIC src)
-target_link_libraries(otr_backend PUBLIC otr_px4_chips)
+target_link_libraries(otr_backend PUBLIC otr_px4_chips Threads::Threads)
 otr_warnings(otr_backend)
+
+# libusb transport (the only part that needs libusb).
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(LIBUSB REQUIRED IMPORTED_TARGET libusb-1.0>=1.0.23)
+add_library(otr_libusb STATIC src/libusb_backend.cpp)
+target_link_libraries(otr_libusb PUBLIC otr_backend PkgConfig::LIBUSB)
+otr_warnings(otr_libusb)
 
 include(CTest)
 if(BUILD_TESTING)
@@ -85,8 +93,16 @@ if(BUILD_TESTING)
     otr_warnings(otr_backend_tests)
     add_test(NAME otr_backend_tests COMMAND otr_backend_tests)
 
+    add_executable(otr_device_tests tests/fx3_device_tests.cpp)
+    target_link_libraries(otr_device_tests PRIVATE otr_backend)
+    otr_warnings(otr_device_tests)
+    add_test(NAME otr_device_tests COMMAND otr_device_tests)
+
     add_executable(otr_ts_path_tests tests/ts_path_tests.cpp)
     target_link_libraries(otr_ts_path_tests PRIVATE otr_px4_chips)
     otr_warnings(otr_ts_path_tests)
     add_test(NAME otr_ts_path_tests COMMAND otr_ts_path_tests)
+
+    set_tests_properties(otr_backend_tests otr_device_tests otr_ts_path_tests
+        PROPERTIES TIMEOUT 60)
 endif()
