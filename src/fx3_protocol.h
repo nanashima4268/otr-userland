@@ -19,6 +19,9 @@ enum class Request : std::uint8_t {
     fpga_load = 0xB4U,
     fpga_reg = 0xB5U,
     stream = 0xB6U,
+    eeprom_write = 0xB7U,   // wValue = address, <= 64 bytes within one page (boot EEPROM, D-46)
+    eeprom_read = 0xB8U,    // wValue = address, wLength <= 512
+    ms_os_20 = 0xBFU,       // MS OS 2.0 descriptor set (Windows only, wIndex = 7)
 };
 
 // I2C program (I2C_RUN data stage): a sequence of

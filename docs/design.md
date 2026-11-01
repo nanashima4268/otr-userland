@@ -53,6 +53,8 @@ Khronos31 の `*-userland` 製品群（siano-userland などの兄弟製品）�
 ## 4. USB プロトコル（v1）
 
 - VID:PID は、開発中は `1209:0001`（pid.codes のテスト用、D-31）。
+- 起動方法（D-46）：ふだんは基板上の I²C EEPROM から起動する。開発中や最初の書き込みでは USB からの起動も使う。USB 起動のときは、ブートローダーが Cypress の既定 ID `04b4:00f3` で現れる。`otrctl` に、ファームを RAM に送る機能（ベンダーリクエスト 0xA0）と、EEPROM に書き込む機能を持たせる。
+- 実装：FX3 ファームは otr-4ts3-u1 の `fx3/fw`（MIT）にある。
 - インターフェースは 1 つ。EP0（制御）と EP1 IN（バルク、TS）を使う。
 - Windows でドライバの手動導入をなくすため、FX3 ファームに MS OS 2.0 ディスクリプタを入れ、WinUSB に自動で結びつける（px4-userland と同じく INF を使わない）。
 
@@ -67,6 +69,9 @@ Khronos31 の `*-userland` 製品群（siano-userland などの兄弟製品）�
 | 0xB4 FPGA_LOAD | OUT | wValue = 段階（0 = 開始、1 = データ、2 = 終了） | 最大 4096 バイト | ビットストリームを分割して送る |
 | 0xB5 FPGA_REG | OUT/IN | wValue = アドレス | 4 バイト | FPGA の制御レジスタ（系統の有効化、取りこぼしカウンタ、版）。設定後の SPI をレジスタアクセスに使う |
 | 0xB6 STREAM | OUT | wValue = 1（開始）／0（停止） | – | GPIF と DMA を開始・停止する。停止時は FIFO を空にする |
+| 0xB7 EEPROM_WRITE | OUT | wValue = アドレス | 64 バイト以下（1 ページ以内） | 起動用 EEPROM（24LC256）に書き込む（D-46） |
+| 0xB8 EEPROM_READ | IN | wValue = アドレス | 512 バイト以下 | 起動用 EEPROM から読み出す |
+| 0xBF MS OS 2.0 | IN | wIndex = 7 | 162 バイト | Windows が WinUSB を結びつけるための記述子セット（BOS の platform capability で指定） |
 
 I2C プログラムの形式は `{op, addr, len, data...}` の並びとし、合計 512 バイト以下にする。
 
