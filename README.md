@@ -36,3 +36,15 @@ Current contents:
 - `src/otr_frontend.*`: the four CXD2856ER/CXD2858ER receivers, modelled on px4-userland's `Mlt5PeFrontend`. Each receiver has its own I2C channel and its own power/reset. The power sequence is power on, 80 ms, release reset, 20 ms. Capture start/stop sets the channel's CH_ENABLE bit. The file also has `OtrTunerBackend` (ISDB-T/S on every receiver, 0 V LNB only) and an absent card reader.
 - `tools/otrd.cpp`: the daemon, assembled like px4d's `serve_core`. It has an `EnclosureFamily` and serves endpoints under product `otr-userland`. The instance defaults to the board serial. `--fpga FILE` loads a development bitstream.
 - `tests/otrd_tests.cpp`: runs without hardware against a fake board, using the real Fx3Device, OtrBoard, OtrStreamTransport, and `Q3U4StreamDataPlane`. Receiver 2 gets exactly channel 2's packets, in order, with the sync byte restored. The test also checks the D-50 order (path reset before STREAM 1, never while streaming, then STREAM 0), the stream shape, the CH_ENABLE mask, the power sequencing (and power-off after a failed init), and the LNB/frequency limits. 10 repeated runs passed.
+- `tools/otr_ts.cpp` (`otr-ts`): one receiver to stdout or a file, using the common `*-ts` CLI (adapted from px4-ts). Select the board with `--instance` (the board serial).
+- `tools/otrctl.cpp` (`otrctl`): `list` and `status` against a running otrd, using the common control CLI. `otrctl board ...` talks to the board directly over USB while otrd is stopped:
+  - `info`: firmware, FPGA source, and flash status.
+  - `stats`: the FPGA packet and drop counters.
+  - `flash-fx3 FILE.img` / `flash-fpga FILE.bin`: write to the boot flash. Both erase, program, and verify. The FPGA bitstream gets its slot header.
+  - `boot FILE.img`: download through the FX3 ROM USB boot loader (04b4:00f3, request 0xA0, with read-back) for a board whose flash is empty.
+- `src/otr_maintenance.*` and `tests/maintenance_tests.cpp`:
+  - FX3 image parsing, checked against the format and the checksum. A real elf2img image (`OTR_FX3_IMG=...`) also parses.
+  - The boot-loader download.
+  - The flash writer, tested against a W25Q32JV model, including detection of a stuck bit.
+- `otrd` logs the FPGA drop counters every 10 s when they change.
+- `--device` is not supported by `otr-ts` or `otrctl`, because dtv-userland-core's identity products do not include `otr-userland`. BonDriver_Userland and mirakc select tuners by `--instance`. The help text of the shared CLI still lists `--device`.

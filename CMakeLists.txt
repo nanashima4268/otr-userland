@@ -108,7 +108,8 @@ target_link_libraries(otr_backend PUBLIC otr_px4_chips Threads::Threads)
 otr_warnings(otr_backend)
 
 # Board, stream transport, and receivers (otrd composition).
-add_library(otr_runtime STATIC src/otr_board.cpp src/otr_transport.cpp src/otr_frontend.cpp)
+add_library(otr_runtime STATIC src/otr_board.cpp src/otr_transport.cpp src/otr_frontend.cpp
+    src/otr_maintenance.cpp)
 target_link_libraries(otr_runtime PUBLIC otr_backend otr_px4_stream dtv::host_tuner)
 otr_warnings(otr_runtime)
 
@@ -125,6 +126,15 @@ target_link_libraries(otrd PRIVATE otr_runtime otr_libusb dtv::host_listener_con
     dtv::host_runtime)
 target_compile_definitions(otrd PRIVATE DTV_USERLAND_CORE_VERSION="${OTR_DTV_CORE_VERSION}")
 otr_warnings(otrd)
+
+add_executable(otr-ts tools/otr_ts.cpp)
+target_include_directories(otr-ts PRIVATE ${OTR_PX4_ROOT}/tools)
+target_link_libraries(otr-ts PRIVATE dtv::host_ts)
+otr_warnings(otr-ts)
+
+add_executable(otrctl tools/otrctl.cpp)
+target_link_libraries(otrctl PRIVATE otr_runtime otr_libusb dtv::host_ctl)
+otr_warnings(otrctl)
 
 include(CTest)
 if(BUILD_TESTING)
@@ -148,6 +158,12 @@ if(BUILD_TESTING)
     otr_warnings(otrd_tests)
     add_test(NAME otrd_tests COMMAND otrd_tests)
 
+    add_executable(maintenance_tests tests/maintenance_tests.cpp)
+    target_link_libraries(maintenance_tests PRIVATE otr_runtime)
+    otr_warnings(maintenance_tests)
+    add_test(NAME maintenance_tests COMMAND maintenance_tests)
+
     set_tests_properties(otr_backend_tests otr_device_tests otr_ts_path_tests otrd_tests
+        maintenance_tests
         PROPERTIES TIMEOUT 60)
 endif()

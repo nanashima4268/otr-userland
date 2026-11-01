@@ -21,6 +21,7 @@
 #include <dtv/userland/host_runtime/family.h>
 
 #include <algorithm>
+#include <array>
 #include <csignal>
 #include <cstdio>
 #include <cstring>
@@ -308,7 +309,21 @@ int main(int argc, char** argv)
     std::signal(SIGTERM, on_signal);
     std::fprintf(stderr, "otrd ready: instance=%s\n", config.instance.c_str());
     Error loop_error = Error::OK;
+    // FPGA drop counters (FIFO overflow, D-47): logged when they change.
+    std::array<std::uint32_t, otr::kReceiverCount> drops{};
+    std::uint64_t next_poll = time.monotonic_ms() + 10000U;
     while (!g_stop) {
+        if (time.monotonic_ms() >= next_poll) {
+            next_poll = time.monotonic_ms() + 10000U;
+            for (unsigned ch = 0U; ch < otr::kReceiverCount; ++ch) {
+                const auto d = board.fpga_read(otr::fpga::drop_cnt(ch));
+                if (d && d.value() != drops[ch]) {
+                    std::fprintf(stderr, "otrd: channel %u FPGA drops %u (+%u)\n", ch, d.value(),
+                                 static_cast<unsigned>((d.value() - drops[ch]) & 0xFFFFU));
+                    drops[ch] = d.value();
+                }
+            }
+        }
         const auto polled = context.value()->poll_once(px4::userland::Timeout{100U});
         if (!polled) {
             loop_error = polled.error();
